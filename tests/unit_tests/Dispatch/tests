@@ -3,4 +3,8 @@
     type = 'Unittest'
     input = 'test_pyomomodelhandler.TestPyomoModelHandler'
   [../]
+  [./test_pyomo_rule_library]
+    type = 'Unittest'
+    input = 'test_pyomo_rule_library.TestPyomoRuleLibrary'
+  [../]
 []
