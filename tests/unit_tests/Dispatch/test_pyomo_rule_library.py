@@ -99,8 +99,7 @@ class TestPyomoRuleLibrary(unittest.TestCase):
     self.model.dischargeVar = pyo.Var(self.resources, self.times, initialize=0, domain=pyo.NonNegativeReals)
     self.model.dischargeVar.set_values(dischargeVals)
 
-    # Call the function under test
-    # Check that none of the cases error out and all return a mathematical expression in terms of the inputs
+    # Call the function under test and check return values
     for r in self.resources:
       initial = 0 if (r == 0) else 4 # Another input
       for t in self.times:
@@ -113,6 +112,76 @@ class TestPyomoRuleLibrary(unittest.TestCase):
           self.assertTrue(pyo.value(levelRule))
         else:
           self.assertFalse(pyo.value(levelRule))
+
+  def testPeriodicLevelRule(self):
+
+    self.model.T = pyo.Set(initialize=[0, 2])
+    levelVals = {(0, 0):  0.0, (0, 1):  2.0, (1, 0): 2.0, (1, 1):  0.0}
+
+    # Set up inputs
+    self.model.levelVar = pyo.Var(self.resources, self.times, initialize=0)
+    self.model.levelVar.set_values(levelVals)
+
+    initial = {self.mockComponent: 2.0}
+
+    # Call the function under test and check return values
+    for r in self.resources:
+      for t in self.times:
+        periodicLevelRule = prl.periodic_level_rule(self.mockComponent, "levelVar", initial, r, self.model, t)
+        self.assertIsInstance(periodicLevelRule, EqualityExpression)
+        # Check return value
+        if r == 0:
+          self.assertTrue(pyo.value(periodicLevelRule))
+        else:
+          self.assertFalse(pyo.value(periodicLevelRule))
+
+  def testCapacityRule(self):
+
+    # Set up patcher for prod_limit_rule
+    prodLimitRulePatcher = patch("dove.dispatch.pyomo_rule_library.prod_limit_rule")
+    mockProdLimitRule = prodLimitRulePatcher.start()
+
+    # Test with negative caps
+    negCaps = [-4.0, 0.0]
+    returned = prl.capacity_rule("comp_production", 0, negCaps, self.model, 0)
+    mockProdLimitRule.assert_called_with("comp_production", 0, negCaps, "lower", 0, self.model)
+    self.assertEqual(returned, mockProdLimitRule.return_value)
+
+    # Test with positive caps
+    posCaps = [0.0, 4.0]
+    returned = prl.capacity_rule("comp_production", 1, posCaps, self.model, 1)
+    mockProdLimitRule.assert_called_with("comp_production", 1, posCaps, "upper", 1, self.model)
+    self.assertEqual(returned, mockProdLimitRule.return_value)
+
+  def testProdLimitRule(self):
+
+    # Add one more timestep
+    self.times = pyo.Set(initialize=[0, 1, 2])
+
+    # Set up inputs
+    prodVals = {(0, 0):  1, (0, 1):  4, (0, 2): 4, (1, 0): 0, (1, 1):  4, (1, 2): 5}
+    limits = [2, 4, 3] # Just use the same limits for both resources
+
+    self.model.prodVar = pyo.Var(self.resources, self.times)
+    self.model.prodVar.set_values(prodVals)
+
+    # Test with normal inputs
+    for r in self.resources:
+      kind = "lower" if (r == 0) else "upper"
+      for t in self.times:
+        # Call function under test
+        prodLimit = prl.prod_limit_rule("prodVar", r, limits, kind, t, self.model)
+        self.assertIsInstance(prodLimit, InequalityExpression)
+        # Check return value
+        if (r == 0 and (t == 0)) or (r == 1 and (t == 2)):
+          self.assertFalse(pyo.value(prodLimit))
+        else:
+          self.assertTrue(pyo.value(prodLimit))
+
+    # Test with bad kind value
+    kind = "middle"
+    with self.assertRaises(TypeError):
+      prl.prod_limit_rule("prodVar", 0, limits, kind, 0, self.model)
 
 
 if __name__ == "__main__":
