@@ -304,74 +304,96 @@ class PriceTakerBuilder(BaseModelBuilder):
         This will not identify all causes of infeasibility. For example, if two resources
         both have independent requirements that cannot be satisfied, this tool will fail
         to identify the cause.
+        In the future, particularly if additional infeasibility diagnosis tools are
+        developed, this method and its related functions may be moved to a separate module.
         """
         if solve_results.solver.termination_condition != TerminationCondition.infeasible:
             print("Nothing to diagnose. Your solution is feasible!")
             return
 
-        print(
-            "\nProblem is infeasible! Identifying factors "
-            "that may be contributing to infeasibility...\n"
-        )
+        print("\nProblem is infeasible! Identifying strategies for attaining feasibility...\n")
 
         m = self.model
 
         solutions = ""
 
         for rname in m.R:
-            constr_bodies = {}
             for t in m.T:
-                constr_bodies[t] = m.resource_balance[rname, t].body
                 m.resource_balance[rname, t].deactivate()
+            m.objective.deactivate()
 
-            # Check whether there is too much of the resource to consume
+            solutions += self._diagnose_extra_consumption(solver, m, rname)
+            solutions += self._diagnose_extra_production(solver, m, rname)
 
-            def excess_check_rule(m: pyo.ConcreteModel, t: int) -> pyo.Expression:  # noqa: ARG001
-                return constr_bodies[t] >= 0  # noqa: B023
-
-            m.gt_r_balance = pyo.Constraint(m.T, rule=excess_check_rule)
-
-            # Try to re-solve
-            new_results = solver.solve(self.model)
-
-            if new_results.solver.termination_condition != TerminationCondition.infeasible:
-                solutions += (
-                    f"\n- There may be a greater amount of resource '{rname}' produced in the "
-                    "system than the system can consume. Consider decreasing the minimum amount "
-                    f"of '{rname}' that must be produced or increasing the maximum amount of "
-                    f"'{rname}' that can be consumed."
-                )
-
-            m.del_component("gt_r_balance")
-
-            # Check whether an insufficient amount of the resource is produced
-
-            def insufficient_check_rule(m: pyo.ConcreteModel, t: int) -> pyo.Expression:  # noqa: ARG001
-                return constr_bodies[t] <= 0  # noqa: B023
-
-            m.lt_r_balance = pyo.Constraint(m.T, rule=insufficient_check_rule)
-
-            # Try to re-solve
-            new_results = solver.solve(self.model)
-
-            if new_results.solver.termination_condition != TerminationCondition.infeasible:
-                solutions += (
-                    f"\n- There may be a smaller amount of resource '{rname}' produced in the "
-                    "system than the system must consume in order for the problem to be feasible. "
-                    f"Consider increasing the maximum amount of '{rname}' that can be produced or "
-                    f"decreasing the minimum amount of '{rname}' that must be consumed."
-                )
-
-            # Clean up modified constraints
             for t in m.T:
                 m.resource_balance[rname, t].activate()
-
-            m.del_component("lt_r_balance")
+            m.objective.activate()
 
         if len(solutions) > 0:
-            print(f"\nSome possible causes for the model's infeasibility: {solutions}\n")
+            print(
+                f"\nFeasibility could be achieved by modifying the "
+                f"system in one of the following ways:{solutions}"
+            )
+            print("\nNote that this list is not necessarily comprehensive.")
         else:
             print(
-                "\nCould not identify any possible causes of infeasibility related to required "
-                "resource quantities. You will have to check your system setup manually.\n"
+                "\nCould not identify any possible solutions for infeasibility. "
+                "Please check your system setup manually.\n"
             )
+
+    def _diagnose_extra_consumption(self, solver: Any, m: pyo.ConcreteModel, rname: str) -> str:
+        """
+        Checks whether additional consumption of resource 'rname' would make the problem feasible.
+
+        NOTES
+        -----
+        This function expects the model m to have the objective
+        and resource balance constraints already deactivated.
+        """
+        res_bal_expressions = [m.resource_balance[rname, t].body for t in m.T]
+
+        m.alt_res_balance = pyo.Constraint(m.T, rule=lambda m, t: res_bal_expressions[t] >= 0)  # noqa: ARG005
+        m.alt_objective = pyo.Objective(expr=max(res_bal_expressions), sense=pyo.minimize)
+
+        # Try to re-solve
+        new_results = solver.solve(self.model)
+
+        m.del_component("alt_res_balance")
+        m.del_component("alt_objective")
+
+        if new_results.solver.termination_condition != TerminationCondition.infeasible:
+            return (
+                f"\n\n- Allowing consumption of at least {pyo.value(max(res_bal_expressions))} "
+                f"additional units of {rname} per timestep"
+            )
+
+        return ""
+
+    def _diagnose_extra_production(self, solver: Any, m: pyo.ConcreteModel, rname: str) -> str:
+        """
+        Checks whether additional consumption of resource 'rname' would make the problem feasible.
+
+        NOTES
+        -----
+        This function expects the model m to have the objective
+        and resource balance constraints already deactivated.
+        """
+        res_bal_expressions = [m.resource_balance[rname, t].body for t in m.T]
+
+        m.alt_res_balance = pyo.Constraint(m.T, rule=lambda m, t: res_bal_expressions[t] <= 0)  # noqa: ARG005
+
+        m.alt_objective = pyo.Objective(expr=min(res_bal_expressions), sense=pyo.maximize)
+
+        # Try to re-solve
+        new_results = solver.solve(self.model)
+
+        m.del_component("alt_res_balance")
+        m.del_component("alt_objective")
+
+        if new_results.solver.termination_condition != TerminationCondition.infeasible:
+            return (
+                f"\n\n- Allowing production of at least {-1 * pyo.value(min(res_bal_expressions))} "
+                f"additional units of {rname} per timestep"
+            )
+
+        return ""
