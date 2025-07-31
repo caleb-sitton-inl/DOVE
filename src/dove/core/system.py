@@ -22,7 +22,7 @@ from typing import Any, Self
 
 from dove.models import BUILDER_REGISTRY
 
-from . import Component, Resource, Storage
+from . import Component, CustomCashFlow, Resource, Storage
 
 
 class System:
@@ -52,6 +52,7 @@ class System:
         components: list[Component] | None = None,
         resources: list[Resource] | None = None,
         dispatch_window: list[int] | None = None,
+        custom_cashflows: list[CustomCashFlow] | None = None,
     ) -> None:
         """
         Initialize a System instance and validate it.
@@ -68,6 +69,7 @@ class System:
         self.components: list[Component] = [] if components is None else components
         self.resources: list[Resource] = [] if resources is None else resources
         self.dispatch_window = [0] if dispatch_window is None else dispatch_window
+        self.custom_cashflows = [] if custom_cashflows is None else custom_cashflows
         self.comp_map: dict[str, Component] = {comp.name: comp for comp in self.components}
         self.res_map: dict[str, Resource] = {res.name: res for res in self.resources}
 

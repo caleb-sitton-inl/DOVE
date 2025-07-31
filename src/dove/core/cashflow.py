@@ -19,14 +19,21 @@ Classes
 
 from __future__ import annotations
 
+import inspect
 from abc import ABC
 from dataclasses import dataclass, field
-from typing import TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import numpy as np
 from numpy.typing import NDArray
 
+from src.dove.core import Component, Resource, Storage
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 TimeDependent: TypeAlias = list[float] | NDArray[np.float64]
+Feature: TypeAlias = tuple[Component, Resource, str]
 
 
 @dataclass
@@ -142,3 +149,65 @@ class Revenue(CashFlow):
     """
 
     sign: int = +1
+
+
+@dataclass
+class CustomCashFlow:
+    """
+    A class that allows the user to calculate their own cash flow based on a feature of the system.
+
+    Attributes
+    ----------
+    name: str
+        Identifier for the cash flow
+    features: list[Feature]
+        A list of the system features that are needed to evaluate this cash flow.
+    evaluation_function: Callable[[int, list[float]], float]
+        A user-defined function that calculates the value of the cash flow at the provided timestep
+        based on a list of values for input features. These input features will be found on the
+        model using information from the features arg, then their values will be provided as
+        arguments to the evaluation_function, in the same order as the features were listed.
+    """
+
+    name: str
+    features: list[Feature]
+    evaluation_function: Callable[[int, list[Any]], float]
+
+    def __post_init__(self) -> None:
+        # Validate features
+        for feat in self.features:
+            comp, res, feat_type = feat  # Unpack tuple
+            if isinstance(comp, Storage):
+                if comp.resource != res:
+                    raise ValueError(
+                        f"{self.name}: The resource provided for feature {feat} does not "
+                        f"match the resource of the component ({res} != {comp.resource})."
+                    )
+                if feat_type not in ["SOC", "charge", "discharge"]:
+                    raise ValueError(
+                        f"{self.name}: The feature type '{feat_type}' provided "
+                        f"for feature {feat} is not accepted with a storage "
+                        "component. Please use 'SOC', 'charge', or 'discharge'."
+                    )
+            else:
+                if feat_type not in ["produces", "consumes"]:
+                    raise ValueError(
+                        f"{self.name}: The feature type '{feat_type}' provided "
+                        f"for feature {feat} is not accepted with a non-storage "
+                        "component. Please use 'produces' or 'consumes'."
+                    )
+                if res not in getattr(comp, feat_type):
+                    raise ValueError(
+                        f"{self.name}: The resource '{res}' provided for "
+                        f"feature {feat} is not found in the '{feat_type}' "
+                        f"'attribute of the provided component '{comp.name}'"
+                    )
+
+        # Confirm that features correspond to evaluation_function args
+        eval_func_signature = inspect.signature(self.evaluation_function)
+        if len(eval_func_signature.parameters) != len(self.features) + 1:
+            raise ValueError(
+                f"{self.name}: The list of features to fetch from the model does not have a "
+                "length equal to the number of features accepted by the evaluation_function "
+                f"({len(self.features)} != {len(eval_func_signature.parameters) - 1})."
+            )

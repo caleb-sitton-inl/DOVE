@@ -12,6 +12,7 @@ throughout the system.
 from .core import (
     Converter,
     Cost,
+    CustomCashFlow,
     PolynomialTransfer,
     RatioTransfer,
     Resource,
@@ -26,6 +27,7 @@ __all__ = [
     "Resource",
     "Cost",
     "Revenue",
+    "CustomCashFlow",
     "Sink",
     "Source",
     "Converter",

@@ -13,7 +13,7 @@ are essential for defining the structure and behavior of energy systems
 and for performing optimization and simulation tasks.
 """
 
-from .cashflow import CashFlow, Cost, Revenue
+from .cashflow import CashFlow, Cost, CustomCashFlow, Revenue
 from .components import (
     Component,
     Converter,
@@ -34,6 +34,7 @@ __all__ = [
     "Storage",
     "CashFlow",
     "Cost",
+    "CustomCashFlow",
     "Resource",
     "Revenue",
     "RatioTransfer",
